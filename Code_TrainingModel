@@ -1,0 +1,102 @@
+#---Hyperparameter tuning: Logistic Regression---
+param_grid_lr = {
+    'C': [0.01, 0.1, 1, 10],
+    'solver': ['saga', 'lbfgs'],
+    'max_iter': [1000, 2000]
+}
+
+grid_lr = GridSearchCV(
+    LogisticRegression(multi_class='multinomial'),
+    param_grid_lr,
+    cv=5,
+    scoring='accuracy',
+    n_jobs=-1
+)
+grid_lr.fit(X_train_tfidf, y_train)
+
+best_lr = grid_lr.best_estimator_
+y_pred_lr = best_lr.predict(X_test_tfidf)
+
+print("\n=== Logistic Regression (Tuned) ===")
+print("Best params:", grid_lr.best_params_)
+print("Accuracy:", accuracy_score(y_test, y_pred_lr))
+print(classification_report(y_test, y_pred_lr, target_names=class_names))
+
+#---Hyperparameter tuning: Random Forest---
+param_grid_rf = {
+    'n_estimators': [100, 200],
+    'max_depth': [None, 20, 40],
+    'min_samples_split': [2, 5],
+    'min_samples_leaf': [1, 2]
+}
+
+grid_rf = GridSearchCV(
+    RandomForestClassifier(random_state=42, n_jobs=-1),
+    param_grid_rf,
+    cv=5,
+    scoring='accuracy',
+    n_jobs=-1
+)
+grid_rf.fit(X_train_tfidf, y_train)
+
+best_rf = grid_rf.best_estimator_
+y_pred_rf = best_rf.predict(X_test_tfidf)
+
+print("\n=== Random Forest (Tuned) ===")
+print("Best params:", grid_rf.best_params_)
+print("Accuracy:", accuracy_score(y_test, y_pred_rf))
+print(classification_report(y_test, y_pred_rf, target_names=class_names))
+
+#---Hyperparameter tuning: SVM (LinearSVC)---
+from sklearn.svm import LinearSVC
+from sklearn.model_selection import GridSearchCV
+
+param_grid_svm = {
+    'C': [1, 5, 10, 20, 50],
+    'max_iter':[1000, 5000]
+}
+
+grid_svm = GridSearchCV(
+    LinearSVC(),
+    param_grid_svm,
+    cv=5,
+    scoring='accuracy',
+    n_jobs=-1
+)
+grid_svm.fit(X_train_tfidf, y_train)
+
+best_svm = grid_svm.best_estimator_
+y_pred_svm = best_svm.predict(X_test_tfidf)
+
+print("\n=== SVM (LinearSVC Tuned) ===")
+print("Best params:", grid_svm.best_params_)
+print("Accuracy:", accuracy_score(y_test, y_pred_svm))
+print(classification_report(y_test, y_pred_svm, target_names=class_names))
+
+# =========================================
+# --- Evaluate the best model ---
+# =========================================
+acc_lr = accuracy_score(y_test, y_pred_lr)
+acc_rf = accuracy_score(y_test, y_pred_rf)
+acc_svm = accuracy_score(y_test, y_pred_svm)
+
+best_pred = max([(y_pred_lr, acc_lr, "Logistic Regression"),
+                 (y_pred_rf, acc_rf, "Random Forest"),
+                 (y_pred_svm, acc_svm, "SVM")],
+                key=lambda x: x[1])
+
+best_pred_labels, best_acc, best_model_name = best_pred
+
+print(f"\n=== Best Model: {best_model_name} ({best_acc*100:.2f}%) ===")
+
+
+# =========================================
+# --- Confusion Matrix ---
+# =========================================
+cm = confusion_matrix(y_test, best_pred_labels)
+plt.figure(figsize=(10,8))
+sns.heatmap(cm, annot=True, fmt='d', xticklabels=class_names, yticklabels=class_names, cmap="Blues")
+plt.xlabel("Predicted")
+plt.ylabel("Actual")
+plt.title(f"Confusion Matrix ({best_model_name})")
+plt.show()
