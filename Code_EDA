@@ -1,0 +1,413 @@
+# ---Import Lib---
+import numpy as np
+import pandas as pd
+from collections import Counter
+import re
+from sklearn.feature_extraction.text import TfidfVectorizer, ENGLISH_STOP_WORDS
+from sklearn.metrics.pairwise import cosine_similarity
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.preprocessing import LabelEncoder
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix
+import matplotlib.pyplot as plt
+import seaborn as sns
+import plotly.graph_objects as go
+from sklearn.model_selection import train_test_split
+
+# ---Load Data---
+url = 'https://raw.githubusercontent.com/nltnh/Python-Project/refs/heads/main/Text_Data/Book_Genre_Dataset2.csv'
+df = pd.read_csv(url)
+
+# ---Dataset Overview---
+total_book = df.shape[0]
+total_genre = df['genre'].nunique()
+avg_words_per_book = df['summary'].apply(lambda x: len(str(x).split())).mean()
+avg_chars_per_book = df['summary'].apply(lambda x: len(str(x).replace(" ",""))).mean()
+
+# Creating overview_df
+overview_df = pd.DataFrame({
+    'Total Books': [total_book],
+    'Genres': [total_genre],
+    'Avg Words/book': [avg_words_per_book],
+    'Avg Chars/book': [avg_chars_per_book]
+})
+
+# Formatting displayed values
+overview_df = overview_df.round(0).astype(int)
+
+print('\033[1mDataset Overview:\033[0m\n')
+display(overview_df)
+print('\033[1mNote:\033[0m Dont count space in chars')
+
+# ---Dataset Example---
+print('\n\n\033[1mDataset sample:\033[0m')
+display(df.head())
+
+# ---Category Distribution---
+
+# Counting number of each label
+genre_count = df['genre'].value_counts().sort_values(ascending=False)
+
+# Changing numberical label to category name
+#label_map = dict(zip(cat_df['genre'], cat_df['Category']))
+#cat_count.index = cat_count.index.map(label_map)
+
+genre_count_pie = go.Figure(go.Pie(
+    labels = genre_count.index,
+    values = genre_count.values,
+    marker = dict(colors=['lightyellow', 'lightpink', 'lightskyblue', 'plum', 'lightgreen', '#D8BFD8', '#FFDAB9', '#F0E68C', '#B0E0E6', '#C1E1C1']),
+    textinfo = 'label+value+percent',
+    textfont_size = 13
+))
+
+# Creating pie chart
+genre_count_pie.update_layout(
+    title = '<b>Genre Distribution<b>',
+    width = 800,
+    showlegend = True
+)
+genre_count_pie.show()
+
+#---Stop words analysis---
+stop_words = set(ENGLISH_STOP_WORDS)
+
+news_stopwords = ['said', 'mr', 'ms', 'mrs', 'told', 'says', 'say', 'according', 'year', 'years', 'new', 'old', 'like', 'just', 'going', 'got', 'use', 'used', 'make', 'made']
+stop_words.update(news_stopwords)
+
+all_words = ' '.join(df['summary']).split()
+stop_word_counts = Counter([w for w in all_words if w in stop_words])
+top_stop_words = stop_word_counts.most_common(20)
+
+words = [w for w, count in top_stop_words]
+counts = [count for w, count in top_stop_words]
+
+fig = go.Figure(data=[go.Bar(
+    x=words,
+    y=counts,
+    marker_color='lightgreen',
+    text=counts,
+    textposition='outside'
+)])
+
+fig.update_layout(
+    title='<b>Top 20 Stop Words<b>',
+    xaxis_title='Stop Words',
+    yaxis_title='Frequency',
+    width=900,
+    height=400,
+    showlegend=False
+)
+
+fig.show()
+
+# Statistics
+total_words = len(all_words)
+total_stop_words = sum(stop_word_counts.values())
+print(f"Total words: {total_words:,}")
+print(f"Stop words: {total_stop_words:,} ({total_stop_words/total_words*100:.1f}%)")
+print(f"Unique stop words found: {len(stop_word_counts)}")
+
+#---Word count Distribution Analysis---
+
+# Calculate word counts
+df['word_count'] = df['summary'].str.split().str.len()
+
+# Create histogram bins
+bins = np.arange(0, df['word_count'].max() + 100, 100)
+hist, bin_edges = np.histogram(df['word_count'], bins=bins)
+
+# Format bin labels
+bin_labels = [f"{int(bin_edges[i])}-{int(bin_edges[i+1])}" for i in range(len(hist))]
+
+# Create histogram
+fig = go.Figure(data=[go.Bar(
+    x=bin_labels,
+    y=hist,
+    marker_color='#667eea',
+    text=hist,
+    textposition='outside'
+)])
+
+fig.update_layout(
+    title='Word Count Distribution',
+    xaxis_title='Word Count Ranges',
+    yaxis_title='Number of Articles',
+    width=1500,
+    height=600,
+    showlegend=False,
+    xaxis={'tickangle': 45}
+)
+
+fig.show()
+
+# Print statistics
+print(f"Mean: {df['word_count'].mean():.2f}")
+print(f"Median: {df['word_count'].median():.2f}")
+print(f"Min: {df['word_count'].min()}")
+print(f"Max: {df['word_count'].max()}")
+print(f"\nPercentiles:")
+for p in [25, 50, 75, 90, 95, 99]:
+    print(f"  {p}th: {df['word_count'].quantile(p/100):.0f}")
+
+# ---Vocabulary Richness by Category---
+genres = df['genre'].unique()
+
+vocab_list = []
+for genre in genres:
+    genre_df = df[df['genre'] == genre]
+    text = " ".join(genre_df['summary'])
+    tokens = re.findall(r'\b[a-z]{3,}\b', text)
+    tokens = [t for t in tokens if t not in stop_words]
+    total_words = len(tokens)
+    unique_words = len(set(tokens))
+    ttr = unique_words / total_words if total_words > 0 else 0
+    vocab_list.append({
+        'Genre': genre,
+        'Total_Words': total_words,
+        'Unique_Words': unique_words,
+        'TTR': round(ttr, 4),
+        'Samples': len(genre_df)
+    })
+
+
+vocab_df = pd.DataFrame(vocab_list).sort_values(by='Unique_Words', ascending=False)
+
+# ---Create chart---
+fig = go.Figure()
+
+fig.add_trace(go.Bar(
+    x=vocab_df['Genre'],
+    y=vocab_df['Unique_Words'],
+    marker_color=['#6EC1E4', '#A1DE93', '#FFD275', '#FF9A76', '#C492B1',
+                  '#8AC4D0', '#E5B181', '#A0BCC2', '#FFB7B2', '#B4C6A6'],
+    text=vocab_df['TTR'],
+    textposition='outside',
+    name='Unique Words'
+))
+
+fig.update_layout(
+    title='<b>Vocabulary Richness by Genre</b>',
+    xaxis_title='Genre',
+    yaxis_title='Unique Words Count',
+    plot_bgcolor='aliceblue',
+    width=850,
+    height=450
+)
+
+fig.show()
+
+# ---Showing Result Table---
+print("Vocabulary Richness Statistics (by Genre):")
+print(vocab_df.to_string(index=False))
+
+#---Top 20 words by genre---
+
+genre_list = ['science', 'history', 'horror', 'travel', 'sports']
+
+def top_words():
+  for cate in genre_list:
+    cat_df = df[df['genre'] == cate]
+
+    all_text = ' '.join(cat_df['summary']).lower()
+    # Use regex to match words >= 3 characters (same as report)
+    words = re.findall(r'[a-z]{3,}', all_text)
+    words = [w for w in words if w not in stop_words]
+    word_counts = Counter(words).most_common(20)
+
+    words_list = [word for word, count in word_counts]
+    counts_list = [count for word, count in word_counts]
+
+    # Create horizontal bar chart
+    fig = go.Figure(data=[go.Bar(
+        x=counts_list,
+        y=words_list,
+        orientation='h',
+        marker_color='#FF9A76',
+        text=counts_list,
+        textposition='outside'
+    )])
+
+    fig.update_layout(
+        title=f'Top 20 Words in {cate.capitalize()} Books',
+        xaxis_title='Frequency',
+        yaxis_title='Words',
+        width=800,
+        height=600,
+        yaxis={'autorange': 'reversed'}  # Top word at top
+    )
+
+    fig.show()
+
+    #Print statistics
+    print(f"\nTop words in {cate}:")
+    for word, count in word_counts[:10]:
+        print(f"  {word:15s}: {count:4d}")
+
+top_words()
+
+#---TF-IDF top term by category---
+genre_list = ['science', 'history', 'horror', 'travel', 'sports']
+
+def top_tfidf():
+  for cate in genre_list:
+    # Calculate TF-IDF on ALL documents in dataset (same as report)
+    vectorizer = TfidfVectorizer(max_features=5000, stop_words=list(stop_words))
+    tfidf_matrix = vectorizer.fit_transform(df['summary'])
+    feature_names = vectorizer.get_feature_names_out()
+
+    # Get indices of documents in selected category
+    cat_indices = df[df['genre'] == cate].index
+
+    # Get TF-IDF scores for documents in this category
+    cat_tfidf = tfidf_matrix[cat_indices]
+
+    # Calculate MEAN TF-IDF score for each term (same as report)
+    mean_scores = np.array(cat_tfidf.mean(axis=0)).flatten()
+
+    # Get top 20 terms
+    top_indices = mean_scores.argsort()[-20:][::-1]
+    top_words = [feature_names[i] for i in top_indices]
+    top_scores = [mean_scores[i] for i in top_indices]
+
+    # Create horizontal bar chart
+    fig = go.Figure(data=[go.Bar(
+        x=top_scores,
+        y=top_words,
+        orientation='h',
+        marker_color='#6EC1E4',
+        text=[f'{score:.4f}' for score in top_scores],
+        textposition='outside'
+    )])
+
+    fig.update_layout(
+        title=f'Top 20 TF-IDF Terms in {cate.capitalize()}',
+        xaxis_title='TF-IDF Score',
+        yaxis_title='Terms',
+        width=800,
+        height=600,
+        yaxis={'autorange': 'reversed'}
+    )
+
+    fig.show()
+
+    # Print top terms
+    print(f"\nTop TF-IDF terms in {cate}:")
+    for word, score in zip(top_words[:10], top_scores[:10]):
+        print(f"  {word:20s}: {score:.4f}")
+
+top_tfidf()
+
+#---N-gram Analysis---
+genre_list = ['science', 'history', 'horror', 'travel', 'sports']
+
+def top_ngrams():
+  for cate in genre_list:
+    cat_df = df[df['genre'] == cate]
+    # Combine all articles in category into ONE text (same as report)
+    combined_text = ' '.join(cat_df['summary'].values)
+
+    # Extract bigrams using TF-IDF on the combined text
+    vectorizer = TfidfVectorizer(
+        ngram_range=(2, 2),  # Bigrams only
+        max_features=50,
+        stop_words=list(stop_words)
+    )
+    # Fit on single combined text (returns 1 row)
+    tfidf_matrix = vectorizer.fit_transform([combined_text])
+
+    # Get TF-IDF scores (single row, so no need for mean)
+    feature_names = vectorizer.get_feature_names_out()
+    tfidf_scores = tfidf_matrix.toarray()[0]
+
+    # Get top 15 bigrams
+    top_indices = tfidf_scores.argsort()[-15:][::-1]
+    top_bigrams = [feature_names[i] for i in top_indices]
+    top_scores = [tfidf_scores[i] for i in top_indices]
+
+    # Create horizontal bar chart
+    fig = go.Figure(data=[go.Bar(
+        x=top_scores,
+        y=top_bigrams,
+        orientation='h',
+        marker_color='#4facfe',
+        text=[f'{score:.4f}' for score in top_scores],
+        textposition='outside'
+    )])
+
+    fig.update_layout(
+        title=f'Top 15 Bigrams in {cate.capitalize()} (TF-IDF)',
+        xaxis_title='TF-IDF Score',
+        yaxis_title='Bigrams',
+        width=900,
+        height=600,
+        yaxis={'autorange': 'reversed'}
+    )
+
+    fig.show()
+
+    # Print results
+    print(f"\nTop bigrams in {cate}:")
+    for bigram, score in zip(top_bigrams[:10], top_scores[:10]):
+        print(f"  {bigram:25s}: {score:.4f}")
+
+top_ngrams()
+
+#---Cosine Similarity Matrix---
+categories = sorted(df['genre'].unique())
+vectorizer = TfidfVectorizer(max_features=5000, stop_words=list(stop_words))
+tfidf_matrix = vectorizer.fit_transform(df['summary'])
+
+# Calculate mean similarity between each pair of categories
+n_cats = len(categories)
+similarity_matrix = np.zeros((n_cats, n_cats))
+
+for i, cat1 in enumerate(categories):
+    cat1_indices = df[df['genre'] == cat1].index
+    cat1_vectors = tfidf_matrix[cat1_indices]
+
+    for j, cat2 in enumerate(categories):
+        cat2_indices = df[df['genre'] == cat2].index
+        cat2_vectors = tfidf_matrix[cat2_indices]
+
+        # Compute pairwise similarities between all document pairs
+        pairwise_sim = cosine_similarity(cat1_vectors, cat2_vectors)
+
+        # Take mean similarity (this is why diagonal != 1.0)
+        similarity_matrix[i, j] = np.mean(pairwise_sim)
+
+# Create heatmap
+fig = go.Figure(data=go.Heatmap(
+    z=similarity_matrix,
+    x=categories,
+    y=categories,
+    colorscale='Purples',
+    text=similarity_matrix,
+    texttemplate='%{text:.3f}',
+    textfont={"size": 12},
+    colorbar=dict(title="Similarity")
+))
+
+fig.update_layout(
+    title='Category Similarity Matrix (Cosine Similarity)',
+    xaxis_title='genre',
+    yaxis_title='genre',
+    width=700,
+    height=600,
+    yaxis={'autorange': 'reversed'}
+)
+
+fig.show()
+
+# Print similarity matrix
+print("\nCategory Similarity Matrix:")
+print("Note: Diagonal is NOT 1.0 because it's MEAN similarity between documents")
+print("within same category, not self-similarity\n")
+
+for i, cat1 in enumerate(categories):
+    print(f"{cat1:15s}: {similarity_matrix[i][i]:.3f} (within-category)")
+    for j, cat2 in enumerate(categories):
+        if i < j:  # Cross-category only
+            sim = similarity_matrix[i][j]
+            status = "⚠️ High" if sim > 0.02 else "✓ Low"
+            print(f"  vs {cat2:15s}: {sim:.3f} {status}")
